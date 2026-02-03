@@ -39,8 +39,8 @@ El diccionario de datos incluye:
 /
 ├── index.md                # Página principal (GitHub Pages)
 ├── diccionario/            # Documentación por tabla
-│   ├── dim_city_otm.md
-│   ├── dim_bulkplan_otm.md
-│   └── fact_shipment.md
+│   ├── otm.md
+│   ├── om.md
+│   └── otros.md
 ├── _config.yml             # Configuración de GitHub Pages
 └── README.md               # Este archivo
