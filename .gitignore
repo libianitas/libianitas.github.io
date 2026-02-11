@@ -1,1 +1,20 @@
 
+# Wallet runtime generado por GitHub Actions
+.wallet_runtime/
+
+# Si aún tienes carpeta wallet en el repo y NO quieres versionarla
+wallet/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Entornos virtuales
+venv/
+.env/
+
+# Archivos temporales
+*.log
+*.tmp
