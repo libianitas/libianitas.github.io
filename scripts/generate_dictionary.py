@@ -77,12 +77,7 @@ def patch_tns_retries(wallet_dir: Path):
 
 
 def unzip_wallet_from_b64(wallet_b64: str, target_dir: Path) -> Path:
-    """
-    Decodifica el wallet ZIP en base64 y lo extrae en target_dir.
-    Retorna el directorio donde quedan tnsnames.ora/sqlnet.ora/cwallet.sso.
-    """
     target_dir.mkdir(parents=True, exist_ok=True)
-
     zip_path = target_dir / "wallet.zip"
     zip_bytes = base64.b64decode(wallet_b64)
     zip_path.write_bytes(zip_bytes)
@@ -90,37 +85,31 @@ def unzip_wallet_from_b64(wallet_b64: str, target_dir: Path) -> Path:
     with zipfile.ZipFile(zip_path, "r") as zf:
         zf.extractall(target_dir)
 
-    # Parchear config para GitHub Actions
-    patch_sqlnet_for_actions(target_dir)
+    # El parche de sqlnet ya no es necesario en modo Thin
+    # patch_sqlnet_for_actions(target_dir) 
+    
     patch_tns_retries(target_dir)
-
     return target_dir
-
 
 def get_adw_connection():
     user = os.environ["ADW_USER"]
     password = os.environ["ADW_PASSWORD"]
     tns_alias = os.environ["ADW_TNS_ALIAS"]
     wallet_b64 = os.environ["ADW_WALLET_B64"]
-    # Leemos la contraseña desde el entorno
     wallet_password = os.getenv("ADW_WALLET_PASSWORD") 
 
-    # 1) Extraer wallet
     tns_admin = unzip_wallet_from_b64(wallet_b64, WALLET_DIR)
 
-    # 2) Configurar entorno
-    os.environ["TNS_ADMIN"] = str(tns_admin)
-
+    # El Modo Thin se activa automáticamente al NO llamar a init_oracle_client()
     print(f"Conectando en modo THIN con Wallet Protegido", flush=True)
 
-    # 3) Conectar
     conn = oracledb.connect(
         user=user,
         password=password,
         dsn=tns_alias,
         config_dir=str(tns_admin),
         wallet_location=str(tns_admin),
-        wallet_password=wallet_password  # <--- Ahora usa la variable
+        wallet_password=wallet_password
     )
     return conn
 
