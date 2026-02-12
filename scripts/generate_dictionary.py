@@ -46,16 +46,19 @@ def get_adw_connection():
     # 1) Extraer wallet en runtime
     tns_admin = unzip_wallet_from_b64(wallet_b64, WALLET_DIR)
 
-    # 2) Configurar variables necesarias para que oracledb encuentre tnsnames/sqlnet
+    # 2) Configurar TNS_ADMIN (por compatibilidad)
     os.environ["TNS_ADMIN"] = str(tns_admin)
 
-    # 3) Conectar (Thin mode, usando wallet)
+    # 3) Conectar (FORZANDO config_dir y wallet_location)
     conn = oracledb.connect(
         user=user,
         password=password,
-        dsn=tns_alias
+        dsn=tns_alias,
+        config_dir=str(tns_admin),
+        wallet_location=str(tns_admin),
     )
     return conn
+
 
 
 def write_md(path: Path, content: str):
