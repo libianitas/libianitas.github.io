@@ -24,58 +24,6 @@ def write_md(path: Path, content: str):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
 
-
-def patch_sqlnet_for_actions(wallet_dir: Path):
-    """
-    Corrige sqlnet.ora del wallet para que WALLET_LOCATION apunte al directorio runtime
-    (en Actions no existe '?/network/admin'). Además fuerza WALLET_OVERRIDE.
-    """
-    sqlnet_path = wallet_dir / "sqlnet.ora"
-    if not sqlnet_path.exists():
-        return
-
-    text = sqlnet_path.read_text(encoding="utf-8", errors="ignore")
-
-    new_wallet_location = (
-        "WALLET_LOCATION = (SOURCE = (METHOD = FILE) "
-        f"(METHOD_DATA = (DIRECTORY = {wallet_dir})))"
-    )
-
-    lines = []
-    replaced = False
-    for line in text.splitlines():
-        if line.strip().upper().startswith("WALLET_LOCATION"):
-            lines.append(new_wallet_location)
-            replaced = True
-        else:
-            lines.append(line)
-
-    if not replaced:
-        lines.append(new_wallet_location)
-
-    if not any(l.strip().upper().startswith("SSL_SERVER_DN_MATCH") for l in lines):
-        lines.append("SSL_SERVER_DN_MATCH = yes")
-
-    if not any(l.strip().upper().startswith("SQLNET.WALLET_OVERRIDE") for l in lines):
-        lines.append("SQLNET.WALLET_OVERRIDE = TRUE")
-
-    sqlnet_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-
-
-def patch_tns_retries(wallet_dir: Path):
-    """
-    Reduce retry_count/retry_delay del tnsnames.ora para evitar cuelgues largos en CI.
-    """
-    tns_path = wallet_dir / "tnsnames.ora"
-    if not tns_path.exists():
-        return
-
-    text = tns_path.read_text(encoding="utf-8", errors="ignore")
-    text = text.replace("(retry_count=20)", "(retry_count=3)")
-    text = text.replace("(retry_delay=3)", "(retry_delay=1)")
-    tns_path.write_text(text, encoding="utf-8")
-
-
 def unzip_wallet_from_b64(wallet_b64: str, target_dir: Path) -> Path:
     target_dir.mkdir(parents=True, exist_ok=True)
     zip_path = target_dir / "wallet.zip"
@@ -85,8 +33,12 @@ def unzip_wallet_from_b64(wallet_b64: str, target_dir: Path) -> Path:
     with zipfile.ZipFile(zip_path, "r") as zf:
         zf.extractall(target_dir)
     
-    # ELIMINAMOS cualquier parche manual al sqlnet.ora o tnsnames.ora
-    # El modo Thin prefiere los archivos originales.
+    # ELIMINAR el sqlnet.ora para evitar que el driver use la ruta "?/network/admin"
+    sqlnet_file = target_dir / "sqlnet.ora"
+    if sqlnet_file.exists():
+        sqlnet_file.unlink()
+        print("Archivo sqlnet.ora eliminado para evitar conflictos de rutas.", flush=True)
+    
     return target_dir
 
 def get_adw_connection():
