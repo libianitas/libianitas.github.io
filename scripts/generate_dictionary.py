@@ -58,19 +58,26 @@ def get_adw_connection():
     wallet_b64 = os.environ["ADW_WALLET_B64"]
     wallet_password = os.getenv("ADW_WALLET_PASSWORD")
 
-    tns_admin = unzip_wallet_from_b64(wallet_b64, WALLET_DIR)
+    # 1. Descomprimir
+    base_tns_admin = unzip_wallet_from_b64(wallet_b64, WALLET_DIR)
     
-    # Debug: Ver qué archivos hay realmente (aparecerá en tus logs de GitHub)
-    print(f"Archivos en Wallet: {os.listdir(tns_admin)}", flush=True)
+    # 2. ENCONTRAR la ruta real donde está el tnsnames.ora
+    # Buscamos si existe una subcarpeta (como 'walletgit') que contenga el archivo
+    tns_admin = base_tns_admin
+    for path in base_tns_admin.rglob("tnsnames.ora"):
+        tns_admin = path.parent
+        break
 
-    # VITAL: Pasamos la ruta absoluta del directorio al driver
-    # Esto ignora el contenido de sqlnet.ora que causaba el error
+    print(f"Ruta efectiva TNS_ADMIN: {tns_admin}", flush=True)
+    print(f"Archivos encontrados: {os.listdir(tns_admin)}", flush=True)
+
+    # 3. Conectar usando la ruta detectada
     conn = oracledb.connect(
         user=user,
         password=password,
         dsn=tns_alias,
-        config_dir=str(tns_admin),       # Donde está tnsnames.ora
-        wallet_location=str(tns_admin),  # Donde están ewallet.p12 / cwallet.sso
+        config_dir=str(tns_admin),       
+        wallet_location=str(tns_admin),  
         wallet_password=wallet_password
     )
     return conn
