@@ -94,15 +94,18 @@ def unzip_wallet_from_b64(wallet_b64: str, target_dir: Path) -> Path:
 def get_adw_connection():
     user = os.environ["ADW_USER"]
     password = os.environ["ADW_PASSWORD"]
-    tns_alias = os.environ["ADW_TNS_ALIAS"]
+    tns_alias = os.environ["ADW_TNS_ALIAS"] # "adwanalyticsprod_high"
     wallet_b64 = os.environ["ADW_WALLET_B64"]
     wallet_password = os.getenv("ADW_WALLET_PASSWORD") 
 
+    # 1) Extraer wallet (asegúrate de que unzip_wallet_from_b64 NO llame a patch_sqlnet)
     tns_admin = unzip_wallet_from_b64(wallet_b64, WALLET_DIR)
 
-    # El Modo Thin se activa automáticamente al NO llamar a init_oracle_client()
-    print(f"Conectando en modo THIN con Wallet Protegido", flush=True)
+    print(f"Conectando a {tns_alias} en modo THIN...", flush=True)
 
+    # 2) Intentar conexión
+    # IMPORTANTE: En modo Thin, wallet_location debe ser la carpeta donde están 
+    # los archivos ewallet.p12 y cwallet.sso descomprimidos.
     conn = oracledb.connect(
         user=user,
         password=password,
