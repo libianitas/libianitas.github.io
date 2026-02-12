@@ -84,33 +84,32 @@ def unzip_wallet_from_b64(wallet_b64: str, target_dir: Path) -> Path:
 
     with zipfile.ZipFile(zip_path, "r") as zf:
         zf.extractall(target_dir)
-
-    # NO LLAMAR A patch_sqlnet_for_actions
-    # patch_tns_retries sigue siendo útil para no esperar de más si falla
-    patch_tns_retries(target_dir)
     
+    # ELIMINAMOS cualquier parche manual al sqlnet.ora o tnsnames.ora
+    # El modo Thin prefiere los archivos originales.
     return target_dir
 
 def get_adw_connection():
     user = os.environ["ADW_USER"]
     password = os.environ["ADW_PASSWORD"]
-    tns_alias = os.environ["ADW_TNS_ALIAS"] # "adwanalyticsprod_high"
+    tns_alias = os.environ["ADW_TNS_ALIAS"]
     wallet_b64 = os.environ["ADW_WALLET_B64"]
-    wallet_password = os.getenv("ADW_WALLET_PASSWORD") 
+    wallet_password = os.getenv("ADW_WALLET_PASSWORD")
 
-    # 1) Extraer wallet (asegúrate de que unzip_wallet_from_b64 NO llame a patch_sqlnet)
     tns_admin = unzip_wallet_from_b64(wallet_b64, WALLET_DIR)
+    
+    # Debug: Ver qué archivos hay realmente (aparecerá en tus logs de GitHub)
+    print(f"Archivos en Wallet: {os.listdir(tns_admin)}", flush=True)
 
-    # Es VITAL que TNS_ADMIN esté en el entorno para el modo Thin
-    os.environ["TNS_ADMIN"] = str(tns_admin)
-
-    return oracledb.connect(
+    # VITAL: Pasamos la ruta absoluta del directorio al driver
+    # Esto ignora el contenido de sqlnet.ora que causaba el error
+    conn = oracledb.connect(
         user=user,
         password=password,
         dsn=tns_alias,
-        config_dir=str(tns_admin),       # Para encontrar tnsnames.ora
-        wallet_location=str(tns_admin),  # Para encontrar ewallet.p12
-        wallet_password=wallet_password  # La contraseña de tu wallet
+        config_dir=str(tns_admin),       # Donde está tnsnames.ora
+        wallet_location=str(tns_admin),  # Donde están ewallet.p12 / cwallet.sso
+        wallet_password=wallet_password
     )
     return conn
 
