@@ -29,13 +29,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # 5️⃣ Ejecutar generación del diccionario
+# 5️⃣ Ejecutar generación del diccionario
       - name: Generate dictionary from ADW
         env:
           ADW_USER: ${{ secrets.ADW_USER }}
           ADW_PASSWORD: ${{ secrets.ADW_PASSWORD }}
           ADW_TNS_ALIAS: ${{ secrets.ADW_TNS_ALIAS }}
           ADW_WALLET_B64: ${{ secrets.ADW_WALLET_B64 }}
+          ADW_WALLET_PASSWORD: ${{ secrets.ADW_WALLET_PASSWORD }} # <--- Nueva línea
           ADW_OWNER: DWADW
         run: |
           python scripts/generate_dictionary.py
