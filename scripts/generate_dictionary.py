@@ -1,72 +1,26 @@
-
 import os
 import oracledb
-from contextlib import contextmanager
 
-def _mask(s: str | None) -> str:
-    if not s:
-        return "None"
-    if len(s) <= 4:
-        return "***"
-    return s[:2] + "***" + s[-2:]
+user = os.environ["ADW_USER"]
+password = os.environ["ADW_PASSWORD"]
+tns_alias = os.environ["ADW_TNS_ALIAS"]
+wallet_dir = os.environ["ADW_WALLET_DIR"]
+wallet_password = os.environ["ADW_WALLET_PASSWORD"]
 
-@contextmanager
-def get_adw_connection():
-    user = os.getenv("ADW_USER") or os.getenv("DB_USER")
-    password = os.getenv("ADW_PASSWORD") or os.getenv("DB_PASSWORD")
-    dsn = os.getenv("ADW_TNS_ALIAS") or os.getenv("DB_SERVICE")  # ej: adwanalyticsprod_high
-    wallet_dir = os.getenv("ADW_WALLET_DIR") or os.getenv("WALLET_DIR") or "wallet"
-    wallet_pwd = os.getenv("ADW_WALLET_PASSWORD") or os.getenv("WALLET_PASSWORD")
+# Fuerza modo Thin (recomendado en GitHub Actions)
+oracledb.defaults.thin_mode = True
 
-    if not user or not password or not dsn:
-        raise RuntimeError(
-            "Missing env vars. Need ADW_USER/ADW_PASSWORD/ADW_TNS_ALIAS "
-            "(or DB_USER/DB_PASSWORD/DB_SERVICE)."
-        )
+conn = oracledb.connect(
+    user=user,
+    password=password,
+    dsn=tns_alias,
+    config_dir=wallet_dir,
+    wallet_location=wallet_dir,
+    wallet_password=wallet_password
+)
 
-    # Fuerza thin + wallet (independiente del sqlnet.ora)
-    oracledb.defaults.config_dir = wallet_dir
-    oracledb.defaults.wallet_location = wallet_dir
-    if wallet_pwd:
-        oracledb.defaults.wallet_password = wallet_pwd
+with conn.cursor() as cur:
+    cur.execute("select 1 from dual")
+    print("ADW CONNECT OK. Result:", cur.fetchone()[0])
 
-    print(f"Conectando a [{dsn}] en modo THIN (wallet_dir={wallet_dir}) user={_mask(user)}", flush=True)
-
-    conn = None
-    try:
-        conn = oracledb.connect(user=user, password=password, dsn=dsn)
-        yield conn
-    finally:
-        if conn:
-            conn.close()
-
-
-def main():
-    owner = os.getenv("ADW_OWNER", "DWADW")
-
-    with get_adw_connection() as conn:
-        cur = conn.cursor()
-
-        # Test mínimo: confirma service + sysdate
-        cur.execute("select sys_context('userenv','service_name'), sysdate from dual")
-        service, sysdate = cur.fetchone()
-        print("SERVICE_NAME =", service)
-        print("SYSDATE      =", sysdate)
-
-        # --- aquí sigue tu lógica real de diccionario ---
-        # Ejemplo: listar tablas del esquema owner
-        cur.execute("""
-            select table_name
-            from all_tables
-            where owner = :owner
-            order by table_name
-        """, owner=owner)
-
-        tables = [r[0] for r in cur.fetchall()]
-        print(f"Owner={owner}, tables={len(tables)}")
-
-        cur.close()
-
-
-if __name__ == "__main__":
-    main()
+conn.close()
