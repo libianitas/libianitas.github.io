@@ -33,11 +33,21 @@ def unzip_wallet_from_b64(wallet_b64: str, target_dir: Path) -> Path:
     with zipfile.ZipFile(zip_path, "r") as zf:
         zf.extractall(target_dir)
     
-    # ELIMINAR el sqlnet.ora para evitar que el driver use la ruta "?/network/admin"
+    # Obtenemos la ruta absoluta real dentro del servidor de GitHub
+    abs_path = target_dir.resolve()
+    
     sqlnet_file = target_dir / "sqlnet.ora"
-    if sqlnet_file.exists():
-        sqlnet_file.unlink()
-        print("Archivo sqlnet.ora eliminado para evitar conflictos de rutas.", flush=True)
+    
+    # En lugar de borrarlo, lo sobreescribimos con la ruta ABSOLUTA
+    # Esto es mucho más robusto que usar "./"
+    sqlnet_content = (
+        f"WALLET_LOCATION = (SOURCE = (METHOD = FILE) "
+        f"(METHOD_DATA = (DIRECTORY = {abs_path})))\n"
+        f"SSL_SERVER_DN_MATCH = yes\n"
+    )
+    
+    sqlnet_file.write_text(sqlnet_content, encoding="utf-8")
+    print(f"sqlnet.ora configurado con ruta absoluta: {abs_path}", flush=True)
     
     return target_dir
 
