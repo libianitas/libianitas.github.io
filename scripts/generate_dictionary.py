@@ -33,22 +33,12 @@ def unzip_wallet_from_b64(wallet_b64: str, target_dir: Path) -> Path:
     with zipfile.ZipFile(zip_path, "r") as zf:
         zf.extractall(target_dir)
     
-    # Obtenemos la ruta absoluta real dentro del servidor de GitHub
-    abs_path = target_dir.resolve()
-    
-    sqlnet_file = target_dir / "sqlnet.ora"
-    
-    # En lugar de borrarlo, lo sobreescribimos con la ruta ABSOLUTA
-    # Esto es mucho más robusto que usar "./"
-    sqlnet_content = (
-        f"WALLET_LOCATION = (SOURCE = (METHOD = FILE) "
-        f"(METHOD_DATA = (DIRECTORY = {abs_path})))\n"
-        f"SSL_SERVER_DN_MATCH = yes\n"
-    )
-    
-    sqlnet_file.write_text(sqlnet_content, encoding="utf-8")
-    print(f"sqlnet.ora configurado con ruta absoluta: {abs_path}", flush=True)
-    
+    # Buscamos y borramos CUALQUIER sqlnet.ora en el wallet extraído
+    # El modo Thin NO lo necesita si usamos wallet_location en oracledb.connect
+    for extra_sqlnet in target_dir.rglob("sqlnet.ora"):
+        extra_sqlnet.unlink()
+        print(f"Limpiando configuración antigua: {extra_sqlnet.name}", flush=True)
+
     return target_dir
 
 def get_adw_connection():
@@ -58,26 +48,22 @@ def get_adw_connection():
     wallet_b64 = os.environ["ADW_WALLET_B64"]
     wallet_password = os.getenv("ADW_WALLET_PASSWORD")
 
-    # 1. Descomprimir
     base_tns_admin = unzip_wallet_from_b64(wallet_b64, WALLET_DIR)
     
-    # 2. ENCONTRAR la ruta real donde está el tnsnames.ora
-    # Buscamos si existe una subcarpeta (como 'walletgit') que contenga el archivo
-    tns_admin = base_tns_admin
+    # Encontrar la carpeta real (donde quedó tnsnames.ora) y convertir a absoluta
+    tns_admin_path = base_tns_admin
     for path in base_tns_admin.rglob("tnsnames.ora"):
-        tns_admin = path.parent
+        tns_admin_path = path.parent.resolve() # .resolve() da la ruta completa
         break
 
-    print(f"Ruta efectiva TNS_ADMIN: {tns_admin}", flush=True)
-    print(f"Archivos encontrados: {os.listdir(tns_admin)}", flush=True)
+    print(f"Conectando con TNS_ADMIN absoluto: {tns_admin_path}", flush=True)
 
-    # 3. Conectar usando la ruta detectada
     conn = oracledb.connect(
         user=user,
         password=password,
         dsn=tns_alias,
-        config_dir=str(tns_admin),       
-        wallet_location=str(tns_admin),  
+        config_dir=str(tns_admin_path),
+        wallet_location=str(tns_admin_path),
         wallet_password=wallet_password
     )
     return conn
