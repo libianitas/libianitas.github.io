@@ -41,4 +41,4 @@ jobs:
 
       - name: Test connection
         run: |
-          python scripts/test_adw_connection.py
+          python scripts/dw_conection.py
