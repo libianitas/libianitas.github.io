@@ -85,10 +85,10 @@ def unzip_wallet_from_b64(wallet_b64: str, target_dir: Path) -> Path:
     with zipfile.ZipFile(zip_path, "r") as zf:
         zf.extractall(target_dir)
 
-    # El parche de sqlnet ya no es necesario en modo Thin
-    # patch_sqlnet_for_actions(target_dir) 
+    # NO llamar a patch_sqlnet_for_actions. 
+    # El modo Thin de oracledb prefiere el archivo original 
+    # o ignorarlo por completo usando wallet_location en oracledb.connect().
     
-    patch_tns_retries(target_dir)
     return target_dir
 
 def get_adw_connection():
