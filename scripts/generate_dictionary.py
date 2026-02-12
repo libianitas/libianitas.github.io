@@ -28,7 +28,8 @@ def write_md(path: Path, content: str):
 def patch_sqlnet_for_actions(wallet_dir: Path):
     """
     Replace '?/network/admin' wallet location with the runtime extracted wallet directory.
-    Force wallet override so the thin driver always uses this wallet.
+    Force wallet override so Oracle client uses this wallet.
+    (Still useful in Thick mode; harmless if already correct.)
     """
     sqlnet_path = wallet_dir / "sqlnet.ora"
     if not sqlnet_path.exists():
@@ -48,6 +49,7 @@ def patch_sqlnet_for_actions(wallet_dir: Path):
             lines.append(new_wallet_location)
             replaced = True
         else:
+            # Drop empty lines that may create duplicates (optional)
             lines.append(line)
 
     if not replaced:
@@ -79,7 +81,7 @@ def patch_tns_retries(wallet_dir: Path):
 def unzip_wallet_from_b64(wallet_b64: str, target_dir: Path) -> Path:
     """
     Decode base64 wallet zip and extract into target_dir.
-    Returns directory that contains tnsnames.ora/sqlnet.ora.
+    Returns directory that contains tnsnames.ora/sqlnet.ora/cwallet.sso.
     """
     target_dir.mkdir(parents=True, exist_ok=True)
 
@@ -90,14 +92,9 @@ def unzip_wallet_from_b64(wallet_b64: str, target_dir: Path) -> Path:
     with zipfile.ZipFile(zip_path, "r") as zf:
         zf.extractall(target_dir)
 
-    # Patch sqlnet + reduce retries for CI
+    # Patch config files for CI
     patch_sqlnet_for_actions(target_dir)
     patch_tns_retries(target_dir)
-
-    # Prevent PEM passphrase prompts in CI
-    pem = target_dir / "ewallet.pem"
-    if pem.exists():
-        pem.unlink()
 
     return target_dir
 
@@ -105,26 +102,30 @@ def unzip_wallet_from_b64(wallet_b64: str, target_dir: Path) -> Path:
 def get_adw_connection():
     user = os.environ["ADW_USER"]
     password = os.environ["ADW_PASSWORD"]
-    tns_alias = os.environ["ADW_TNS_ALIAS"]
+    tns_alias = os.environ["ADW_TNS_ALIAS"]         # e.g., adwanalyticsprod_high
     wallet_b64 = os.environ["ADW_WALLET_B64"]
 
-    # 1) Extract wallet
+    # 1) Extract wallet at runtime
     tns_admin = unzip_wallet_from_b64(wallet_b64, WALLET_DIR)
 
-    # 2) Set TNS_ADMIN for compatibility
+    # 2) Set TNS_ADMIN (so tnsnames/sqlnet are found)
     os.environ["TNS_ADMIN"] = str(tns_admin)
 
-    # Debug (you can remove after it's stable)
+    # Debug (remove later if you want)
     print("TNS_ADMIN:", str(tns_admin), flush=True)
     print("Wallet files:", [p.name for p in Path(tns_admin).glob("*")], flush=True)
 
-    # 3) Connect (force config_dir + wallet_location)
+    # 3) IMPORTANT: use Thick mode (Instant Client installed in workflow)
+    # This avoids PEM/passphrase issues and uses cwallet.sso/ewallet.p12 correctly.
+    oracledb.init_oracle_client()
+
+    # 4) Connect
     conn = oracledb.connect(
         user=user,
         password=password,
-        dsn=tns_alias,                 # e.g., adwanalyticsprod_high
-        config_dir=str(tns_admin),      # where tnsnames.ora/sqlnet.ora are
-        wallet_location=str(tns_admin), # where cwallet.sso/ewallet.p12 are
+        dsn=tns_alias,
+        config_dir=str(tns_admin),
+        wallet_location=str(tns_admin),
     )
     return conn
 
@@ -182,8 +183,13 @@ def fetch_tables_and_columns(conn, owner: str):
                 else:
                     dtype = f"NUMBER({data_precision})"
 
+        default_txt = ""
+        if data_default is not None:
+            # Some defaults come with trailing spaces/newlines
+            default_txt = str(data_default).strip()
+
         tables.setdefault(table_name, []).append(
-            (col_name, dtype, nullable, (data_default.strip() if data_default else ""))
+            (col_name, dtype, nullable, default_txt)
         )
 
     cur.close()
