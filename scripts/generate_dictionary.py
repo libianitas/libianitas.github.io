@@ -27,8 +27,8 @@ def write_md(path: Path, content: str):
 
 def patch_sqlnet_for_actions(wallet_dir: Path):
     """
-    Force auto-login wallet usage (cwallet.sso / ewallet.p12) in non-interactive runners.
-    Prevents 'Enter PEM pass phrase:' prompts and stabilizes TLS.
+    Replace '?/network/admin' wallet location with the runtime extracted wallet directory.
+    Force wallet override so the thin driver always uses this wallet.
     """
     sqlnet_path = wallet_dir / "sqlnet.ora"
     if not sqlnet_path.exists():
@@ -36,22 +36,44 @@ def patch_sqlnet_for_actions(wallet_dir: Path):
 
     text = sqlnet_path.read_text(encoding="utf-8", errors="ignore")
 
-    # Ensure wallet location points to extracted directory
-    if "WALLET_LOCATION" not in text:
-        text += (
-            "\nWALLET_LOCATION = (SOURCE = (METHOD = FILE) "
-            f"(METHOD_DATA = (DIRECTORY = {wallet_dir})))\n"
-        )
+    new_wallet_location = (
+        "WALLET_LOCATION = (SOURCE = (METHOD = FILE) "
+        f"(METHOD_DATA = (DIRECTORY = {wallet_dir})))"
+    )
 
-    # Recommended for ADW
-    if "SSL_SERVER_DN_MATCH" not in text:
-        text += "\nSSL_SERVER_DN_MATCH = yes\n"
+    lines = []
+    replaced = False
+    for line in text.splitlines():
+        if line.strip().upper().startswith("WALLET_LOCATION"):
+            lines.append(new_wallet_location)
+            replaced = True
+        else:
+            lines.append(line)
 
-    # Force wallet override (prefer wallet in this dir)
-    if "SQLNET.WALLET_OVERRIDE" not in text:
-        text += "\nSQLNET.WALLET_OVERRIDE = TRUE\n"
+    if not replaced:
+        lines.append(new_wallet_location)
 
-    sqlnet_path.write_text(text, encoding="utf-8")
+    if not any(l.strip().upper().startswith("SSL_SERVER_DN_MATCH") for l in lines):
+        lines.append("SSL_SERVER_DN_MATCH = yes")
+
+    if not any(l.strip().upper().startswith("SQLNET.WALLET_OVERRIDE") for l in lines):
+        lines.append("SQLNET.WALLET_OVERRIDE = TRUE")
+
+    sqlnet_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def patch_tns_retries(wallet_dir: Path):
+    """
+    Reduce retry_count/retry_delay in CI to avoid long hangs.
+    """
+    tns_path = wallet_dir / "tnsnames.ora"
+    if not tns_path.exists():
+        return
+
+    text = tns_path.read_text(encoding="utf-8", errors="ignore")
+    text = text.replace("(retry_count=20)", "(retry_count=3)")
+    text = text.replace("(retry_delay=3)", "(retry_delay=1)")
+    tns_path.write_text(text, encoding="utf-8")
 
 
 def unzip_wallet_from_b64(wallet_b64: str, target_dir: Path) -> Path:
@@ -68,10 +90,11 @@ def unzip_wallet_from_b64(wallet_b64: str, target_dir: Path) -> Path:
     with zipfile.ZipFile(zip_path, "r") as zf:
         zf.extractall(target_dir)
 
-    # Patch sqlnet to avoid PEM prompts on CI
+    # Patch sqlnet + reduce retries for CI
     patch_sqlnet_for_actions(target_dir)
+    patch_tns_retries(target_dir)
 
-    # Optional: remove PEM to prevent passphrase prompt (safe in runtime dir)
+    # Prevent PEM passphrase prompts in CI
     pem = target_dir / "ewallet.pem"
     if pem.exists():
         pem.unlink()
@@ -91,16 +114,17 @@ def get_adw_connection():
     # 2) Set TNS_ADMIN for compatibility
     os.environ["TNS_ADMIN"] = str(tns_admin)
 
-    # Debug (you can remove later)
-    print("Wallet files:", list(Path(tns_admin).glob("*")))
+    # Debug (you can remove after it's stable)
+    print("TNS_ADMIN:", str(tns_admin), flush=True)
+    print("Wallet files:", [p.name for p in Path(tns_admin).glob("*")], flush=True)
 
     # 3) Connect (force config_dir + wallet_location)
     conn = oracledb.connect(
         user=user,
         password=password,
-        dsn=tns_alias,
-        config_dir=str(tns_admin),
-        wallet_location=str(tns_admin),
+        dsn=tns_alias,                 # e.g., adwanalyticsprod_high
+        config_dir=str(tns_admin),      # where tnsnames.ora/sqlnet.ora are
+        wallet_location=str(tns_admin), # where cwallet.sso/ewallet.p12 are
     )
     return conn
 
@@ -192,7 +216,7 @@ def main():
         index_lines.append(f"- [{owner}.{table_name}](diccionario/{owner}.{table_name}.md)")
 
     write_md(INDEX_MD, "\n".join(index_lines) + "\n")
-    print(f"OK. Tablas generadas: {len(tables)}")
+    print(f"OK. Tablas generadas: {len(tables)}", flush=True)
 
 
 if __name__ == "__main__":
