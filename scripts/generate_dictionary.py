@@ -45,6 +45,7 @@ def get_adw_connection():
 
     # 1) Extraer wallet en runtime
     tns_admin = unzip_wallet_from_b64(wallet_b64, WALLET_DIR)
+    print("Wallet files:", list(Path(tns_admin).glob("*")))
 
     # 2) Configurar TNS_ADMIN (por compatibilidad)
     os.environ["TNS_ADMIN"] = str(tns_admin)
