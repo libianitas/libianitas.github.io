@@ -29,22 +29,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # 4️⃣ Instalar Oracle Instant Client (Ubuntu 24.04 compatible)
-      - name: Install Oracle Instant Client
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y unzip wget libaio1t64 libnsl2 libaio-dev
-
-          mkdir -p $HOME/instantclient
-          cd $HOME/instantclient
-
-          wget -q https://download.oracle.com/otn_software/linux/instantclient/instantclient-basic-linuxx64.zip -O ic.zip
-          unzip -q ic.zip
-
-          IC_DIR=$(ls -d instantclient_*)
-          echo "$HOME/instantclient/$IC_DIR" >> $GITHUB_PATH
-          echo "LD_LIBRARY_PATH=$HOME/instantclient/$IC_DIR" >> $GITHUB_ENV
-
       # 5️⃣ Ejecutar generación del diccionario
       - name: Generate dictionary from ADW
         env:
