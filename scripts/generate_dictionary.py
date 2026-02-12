@@ -8,7 +8,7 @@ from pathlib import Path
 import oracledb
 
 # =========================
-# Repo paths
+# Rutas del repo
 # =========================
 ROOT = Path(".")
 OUT_DIR = ROOT / "diccionario"
@@ -16,7 +16,7 @@ OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 INDEX_MD = ROOT / "index.md"
 
-# Runtime wallet folder (must NOT be committed)
+# Carpeta runtime para el wallet (NO debe versionarse)
 WALLET_DIR = ROOT / ".wallet_runtime"
 
 
@@ -27,9 +27,8 @@ def write_md(path: Path, content: str):
 
 def patch_sqlnet_for_actions(wallet_dir: Path):
     """
-    Replace '?/network/admin' wallet location with the runtime extracted wallet directory.
-    Force wallet override so Oracle client uses this wallet.
-    (Still useful in Thick mode; harmless if already correct.)
+    Corrige sqlnet.ora del wallet para que WALLET_LOCATION apunte al directorio runtime
+    (en Actions no existe '?/network/admin'). Además fuerza WALLET_OVERRIDE.
     """
     sqlnet_path = wallet_dir / "sqlnet.ora"
     if not sqlnet_path.exists():
@@ -49,7 +48,6 @@ def patch_sqlnet_for_actions(wallet_dir: Path):
             lines.append(new_wallet_location)
             replaced = True
         else:
-            # Drop empty lines that may create duplicates (optional)
             lines.append(line)
 
     if not replaced:
@@ -66,7 +64,7 @@ def patch_sqlnet_for_actions(wallet_dir: Path):
 
 def patch_tns_retries(wallet_dir: Path):
     """
-    Reduce retry_count/retry_delay in CI to avoid long hangs.
+    Reduce retry_count/retry_delay del tnsnames.ora para evitar cuelgues largos en CI.
     """
     tns_path = wallet_dir / "tnsnames.ora"
     if not tns_path.exists():
@@ -80,8 +78,8 @@ def patch_tns_retries(wallet_dir: Path):
 
 def unzip_wallet_from_b64(wallet_b64: str, target_dir: Path) -> Path:
     """
-    Decode base64 wallet zip and extract into target_dir.
-    Returns directory that contains tnsnames.ora/sqlnet.ora/cwallet.sso.
+    Decodifica el wallet ZIP en base64 y lo extrae en target_dir.
+    Retorna el directorio donde quedan tnsnames.ora/sqlnet.ora/cwallet.sso.
     """
     target_dir.mkdir(parents=True, exist_ok=True)
 
@@ -92,7 +90,7 @@ def unzip_wallet_from_b64(wallet_b64: str, target_dir: Path) -> Path:
     with zipfile.ZipFile(zip_path, "r") as zf:
         zf.extractall(target_dir)
 
-    # Patch config files for CI
+    # Parchear config para GitHub Actions
     patch_sqlnet_for_actions(target_dir)
     patch_tns_retries(target_dir)
 
@@ -102,24 +100,24 @@ def unzip_wallet_from_b64(wallet_b64: str, target_dir: Path) -> Path:
 def get_adw_connection():
     user = os.environ["ADW_USER"]
     password = os.environ["ADW_PASSWORD"]
-    tns_alias = os.environ["ADW_TNS_ALIAS"]         # e.g., adwanalyticsprod_high
+    tns_alias = os.environ["ADW_TNS_ALIAS"]         # ej: adwanalyticsprod_high
     wallet_b64 = os.environ["ADW_WALLET_B64"]
 
-    # 1) Extract wallet at runtime
+    # 1) Extraer wallet en runtime
     tns_admin = unzip_wallet_from_b64(wallet_b64, WALLET_DIR)
 
-    # 2) Set TNS_ADMIN (so tnsnames/sqlnet are found)
+    # 2) Setear TNS_ADMIN para que encuentre tnsnames/sqlnet
     os.environ["TNS_ADMIN"] = str(tns_admin)
 
-    # Debug (remove later if you want)
+    # Debug (puedes quitar después)
     print("TNS_ADMIN:", str(tns_admin), flush=True)
     print("Wallet files:", [p.name for p in Path(tns_admin).glob("*")], flush=True)
 
-    # 3) IMPORTANT: use Thick mode (Instant Client installed in workflow)
-    # This avoids PEM/passphrase issues and uses cwallet.sso/ewallet.p12 correctly.
+    # 3) Thick mode (Instant Client instalado en el workflow)
+    # Esto evita problemas del thin con ewallet.pem y usa cwallet.sso/ewallet.p12 correctamente.
     oracledb.init_oracle_client()
 
-    # 4) Connect
+    # 4) Conectar
     conn = oracledb.connect(
         user=user,
         password=password,
@@ -132,10 +130,10 @@ def get_adw_connection():
 
 def fetch_tables_and_columns(conn, owner: str):
     """
-    Returns dict: {table_name: [(column_name, dtype, nullable, default), ...]}
-    Filters:
-      - excludes TMP tables
-      - includes DIM_, FACT_, BRIDGE_, MV_
+    Retorna dict: {table_name: [(column_name, dtype, nullable, default), ...]}
+    Filtros:
+      - excluye TMP
+      - incluye DIM_, FACT_, BRIDGE_, MV_
     """
     sql = """
     SELECT
@@ -172,7 +170,7 @@ def fetch_tables_and_columns(conn, owner: str):
         nullable = row[6]
         data_default = row[7]
 
-        # Format datatype
+        # Formatear datatype
         dtype = data_type
         if data_type in ("VARCHAR2", "CHAR", "NVARCHAR2", "NCHAR"):
             dtype = f"{data_type}({data_length})"
@@ -185,7 +183,6 @@ def fetch_tables_and_columns(conn, owner: str):
 
         default_txt = ""
         if data_default is not None:
-            # Some defaults come with trailing spaces/newlines
             default_txt = str(data_default).strip()
 
         tables.setdefault(table_name, []).append(
@@ -199,7 +196,7 @@ def fetch_tables_and_columns(conn, owner: str):
 def generate_table_md(owner: str, table_name: str, columns):
     lines = []
     lines.append(f"# {owner}.{table_name}\n")
-    lines.append("| Column | Type | Nullable | Default |")
+    lines.append("| Columna | Tipo | Nulo | Default |")
     lines.append("|---|---|---|---|")
     for col, dtype, nullable, default in columns:
         lines.append(f"| {col} | {dtype} | {nullable} | {default} |")
@@ -213,7 +210,7 @@ def main():
     with get_adw_connection() as conn:
         tables = fetch_tables_and_columns(conn, owner)
 
-    # Generate per-table markdown
+    # Generar Markdown por tabla
     index_lines = [f"# Diccionario de datos - {owner}\n", "## Tablas\n"]
 
     for table_name, cols in tables.items():
