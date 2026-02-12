@@ -33,7 +33,7 @@ jobs:
       - name: Install Oracle Instant Client
         run: |
           sudo apt-get update
-          sudo apt-get install -y libaio-dev unzip wget
+          sudo apt-get install -y unzip wget libaio1t64 libnsl2 libaio-dev
 
           mkdir -p $HOME/instantclient
           cd $HOME/instantclient
