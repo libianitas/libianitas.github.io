@@ -3,7 +3,7 @@ name: Update ADW Data Dictionary
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 6 * * *"  # diario 06:00 UTC (cambia si quieres)
+    - cron: "0 6 * * *"   # Ejecuta diario a las 06:00 UTC (opcional)
 
 permissions:
   contents: write
@@ -13,19 +13,40 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
+      # 1️⃣ Checkout del repo
+      - name: Checkout repository
         uses: actions/checkout@v4
 
+      # 2️⃣ Setup Python
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Install dependencies
+      # 3️⃣ Instalar dependencias Python
+      - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      # 4️⃣ Instalar Oracle Instant Client (para Thick mode)
+      - name: Install Oracle Instant Client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libaio1 unzip wget
+
+          mkdir -p $HOME/instantclient
+          cd $HOME/instantclient
+
+          # Descargar Instant Client Basic
+          wget -q https://download.oracle.com/otn_software/linux/instantclient/instantclient-basic-linuxx64.zip -O ic.zip
+          unzip -q ic.zip
+
+          IC_DIR=$(ls -d instantclient_*)
+          echo "$HOME/instantclient/$IC_DIR" >> $GITHUB_PATH
+          echo "LD_LIBRARY_PATH=$HOME/instantclient/$IC_DIR" >> $GITHUB_ENV
+
+      # 5️⃣ Ejecutar generación del diccionario
       - name: Generate dictionary from ADW
         env:
           ADW_USER: ${{ secrets.ADW_USER }}
@@ -36,10 +57,12 @@ jobs:
         run: |
           python scripts/generate_dictionary.py
 
+      # 6️⃣ Commit y push de archivos generados
       - name: Commit and push changes
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+
           git add index.md diccionario/ || true
           git commit -m "Update ADW data dictionary" || echo "No changes to commit"
           git push
