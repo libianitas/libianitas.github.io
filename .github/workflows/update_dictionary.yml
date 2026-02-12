@@ -1,52 +1,81 @@
-name: Update ADW Data Dictionary
+name: Test ADW Connection
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "0 6 * * *"   # Ejecuta diario a las 06:00 UTC (opcional)
-
-permissions:
-  contents: write
 
 jobs:
-  build-dictionary:
+  test-adw:
     runs-on: ubuntu-latest
+    env:
+      ADW_USER: ${{ secrets.ADW_USER }}
+      ADW_PASSWORD: ${{ secrets.ADW_PASSWORD }}
+      ADW_TNS_ALIAS: ${{ secrets.ADW_TNS_ALIAS }}          # adwanalyticsprod_high|medium|low
+      ADW_WALLET_B64: ${{ secrets.ADW_WALLET_B64 }}
+      ADW_WALLET_PASSWORD: ${{ secrets.ADW_WALLET_PASSWORD }}
 
     steps:
-      # 1️⃣ Clonar repositorio
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      # 2️⃣ Configurar Python
-      - name: Set up Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      # 3️⃣ Instalar dependencias Python
-      - name: Install Python dependencies
+      - name: Install deps
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install oracledb
 
-# 5️⃣ Ejecutar generación del diccionario
-      - name: Generate dictionary from ADW
-        env:
-          ADW_USER: ${{ secrets.ADW_USER }}
-          ADW_PASSWORD: ${{ secrets.ADW_PASSWORD }}
-          ADW_TNS_ALIAS: ${{ secrets.ADW_TNS_ALIAS }}
-          ADW_WALLET_B64: ${{ secrets.ADW_WALLET_B64 }}
-          ADW_WALLET_PASSWORD: ${{ secrets.ADW_WALLET_PASSWORD }} # <--- Nueva línea
-          ADW_OWNER: DWADW
+      - name: Decode wallet
+        shell: bash
         run: |
-          python scripts/generate_dictionary.py
+          mkdir -p wallet
+          echo "$ADW_WALLET_B64" | base64 -d > wallet.zip
+          unzip -o wallet.zip -d wallet
+          echo "Wallet contents:"
+          ls -la wallet
 
-      # 6️⃣ Commit y push automático
-      - name: Commit and push changes
+      - name: Patch sqlnet.ora for CI
+        shell: bash
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          cat > wallet/sqlnet.ora <<'EOF'
+          WALLET_LOCATION = (SOURCE=(METHOD=file)(METHOD_DATA=(DIRECTORY="./")))
+          SSL_SERVER_DN_MATCH=yes
+          EOF
+          echo "sqlnet.ora:"
+          cat wallet/sqlnet.ora
 
-          git add index.md diccionario/ || true
-          git commit -m "Update ADW data dictionary" || echo "No changes to commit"
-          git push
+      - name: Show available aliases
+        shell: bash
+        run: |
+          echo "ADW_TNS_ALIAS=[$ADW_TNS_ALIAS]"
+          echo "Aliases in tnsnames.ora:"
+          grep -E "^[A-Za-z0-9_]+\s*=" wallet/tnsnames.ora || true
+          echo "Alias match check:"
+          grep -E "^${ADW_TNS_ALIAS}\s*=" wallet/tnsnames.ora
+
+      - name: Test connect (THIN)
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os, oracledb
+
+          wallet_dir = "wallet"
+          oracledb.defaults.config_dir = wallet_dir
+          oracledb.defaults.wallet_location = wallet_dir
+          oracledb.defaults.wallet_password = os.getenv("ADW_WALLET_PASSWORD")
+
+          print("Connecting to:", os.getenv("ADW_TNS_ALIAS"), "as", os.getenv("ADW_USER"))
+          conn = oracledb.connect(
+              user=os.getenv("ADW_USER"),
+              password=os.getenv("ADW_PASSWORD"),
+              dsn=os.getenv("ADW_TNS_ALIAS")
+          )
+          cur = conn.cursor()
+          cur.execute("select sysdate from dual")
+          print("SYSDATE:", cur.fetchone()[0])
+          cur.close()
+          conn.close()
+          print("Conexion OK")
+          PY
