@@ -100,30 +100,27 @@ def unzip_wallet_from_b64(wallet_b64: str, target_dir: Path) -> Path:
 def get_adw_connection():
     user = os.environ["ADW_USER"]
     password = os.environ["ADW_PASSWORD"]
-    tns_alias = os.environ["ADW_TNS_ALIAS"]         # ej: adwanalyticsprod_high
+    tns_alias = os.environ["ADW_TNS_ALIAS"]
     wallet_b64 = os.environ["ADW_WALLET_B64"]
+    # Leemos la contraseña desde el entorno
+    wallet_password = os.getenv("ADW_WALLET_PASSWORD") 
 
-    # 1) Extraer wallet en runtime
+    # 1) Extraer wallet
     tns_admin = unzip_wallet_from_b64(wallet_b64, WALLET_DIR)
 
-    # 2) Setear TNS_ADMIN para que encuentre tnsnames/sqlnet
+    # 2) Configurar entorno
     os.environ["TNS_ADMIN"] = str(tns_admin)
 
-    # Debug (puedes quitar después)
-    print("TNS_ADMIN:", str(tns_admin), flush=True)
-    print("Wallet files:", [p.name for p in Path(tns_admin).glob("*")], flush=True)
+    print(f"Conectando en modo THIN con Wallet Protegido", flush=True)
 
-    # 3) Thick mode (Instant Client instalado en el workflow)
-    # Esto evita problemas del thin con ewallet.pem y usa cwallet.sso/ewallet.p12 correctamente.
-    #oracledb.init_oracle_client()
-
-    # 4) Conectar
+    # 3) Conectar
     conn = oracledb.connect(
         user=user,
         password=password,
         dsn=tns_alias,
         config_dir=str(tns_admin),
         wallet_location=str(tns_admin),
+        wallet_password=wallet_password  # <--- Ahora usa la variable
     )
     return conn
 
