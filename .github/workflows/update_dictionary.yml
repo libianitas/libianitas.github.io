@@ -32,6 +32,7 @@ jobs:
           ADW_PASSWORD: ${{ secrets.ADW_PASSWORD }}
           ADW_TNS_ALIAS: ${{ secrets.ADW_TNS_ALIAS }}
           ADW_WALLET_B64: ${{ secrets.ADW_WALLET_B64 }}
+          ADW_OWNER: DWADW
         run: |
           python scripts/generate_dictionary.py
 
