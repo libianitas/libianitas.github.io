@@ -115,7 +115,7 @@ def get_adw_connection():
 
     # 3) Thick mode (Instant Client instalado en el workflow)
     # Esto evita problemas del thin con ewallet.pem y usa cwallet.sso/ewallet.p12 correctamente.
-    oracledb.init_oracle_client()
+    #oracledb.init_oracle_client()
 
     # 4) Conectar
     conn = oracledb.connect(
