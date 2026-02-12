@@ -85,9 +85,9 @@ def unzip_wallet_from_b64(wallet_b64: str, target_dir: Path) -> Path:
     with zipfile.ZipFile(zip_path, "r") as zf:
         zf.extractall(target_dir)
 
-    # NO llamar a patch_sqlnet_for_actions. 
-    # El modo Thin de oracledb prefiere el archivo original 
-    # o ignorarlo por completo usando wallet_location en oracledb.connect().
+    # NO LLAMAR A patch_sqlnet_for_actions
+    # patch_tns_retries sigue siendo útil para no esperar de más si falla
+    patch_tns_retries(target_dir)
     
     return target_dir
 
@@ -101,18 +101,16 @@ def get_adw_connection():
     # 1) Extraer wallet (asegúrate de que unzip_wallet_from_b64 NO llame a patch_sqlnet)
     tns_admin = unzip_wallet_from_b64(wallet_b64, WALLET_DIR)
 
-    print(f"Conectando a {tns_alias} en modo THIN...", flush=True)
+    # Es VITAL que TNS_ADMIN esté en el entorno para el modo Thin
+    os.environ["TNS_ADMIN"] = str(tns_admin)
 
-    # 2) Intentar conexión
-    # IMPORTANTE: En modo Thin, wallet_location debe ser la carpeta donde están 
-    # los archivos ewallet.p12 y cwallet.sso descomprimidos.
-    conn = oracledb.connect(
+    return oracledb.connect(
         user=user,
         password=password,
         dsn=tns_alias,
-        config_dir=str(tns_admin),
-        wallet_location=str(tns_admin),
-        wallet_password=wallet_password
+        config_dir=str(tns_admin),       # Para encontrar tnsnames.ora
+        wallet_location=str(tns_admin),  # Para encontrar ewallet.p12
+        wallet_password=wallet_password  # La contraseña de tu wallet
     )
     return conn
 
