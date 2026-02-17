@@ -1,44 +1,74 @@
-name: Test ADW Connection
+name: ADW Connect Test
 
 on:
   workflow_dispatch:
 
 jobs:
-  test-adw:
+  adw:
     runs-on: ubuntu-latest
-
-    env:
-      ADW_USER: ${{ secrets.ADW_USER }}
-      ADW_PASSWORD: ${{ secrets.ADW_PASSWORD }}
-      ADW_TNS_ALIAS: ${{ secrets.ADW_TNS_ALIAS }}
-      ADW_WALLET_PASSWORD: ${{ secrets.ADW_WALLET_PASSWORD }}
-
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Install dependencies
+      - name: Install deps
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install oracledb
 
-      - name: Rebuild wallet from secret (base64) and unzip
+      - name: Decode wallet
+        env:
+          ADW_WALLET_B64: ${{ secrets.ADW_WALLET_B64 }}
         run: |
           mkdir -p wallet
-          echo "${{ secrets.ADW_WALLET_ZIP_B64 }}" | base64 -d > wallet.zip
+          echo "$ADW_WALLET_B64" | base64 -d > wallet.zip
           unzip -o wallet.zip -d wallet
           ls -la wallet
 
-      - name: Set wallet env (TNS_ADMIN)
+      - name: Fix sqlnet.ora to use local wallet path
         run: |
-          echo "ADW_WALLET_DIR=${{ github.workspace }}/wallet" >> $GITHUB_ENV
-          echo "TNS_ADMIN=${{ github.workspace }}/wallet" >> $GITHUB_ENV
+          # Asegura que TNS_ADMIN apunte al wallet dentro del repo
+          # y que sqlnet.ora no apunte a "./" u otra ruta rara
+          sed -i 's|DIRECTORY=".*"|DIRECTORY="./wallet"|g' wallet/sqlnet.ora || true
+          sed -i 's|DIRECTORY=.*|DIRECTORY=./wallet|g' wallet/sqlnet.ora || true
+          echo "===== sqlnet.ora ====="
+          cat wallet/sqlnet.ora
+          echo "===== tnsnames.ora (head) ====="
+          head -n 30 wallet/tnsnames.ora
 
-      - name: Test connection
+      - name: Test connect (Thin + Wallet)
+        env:
+          ADW_USER: ${{ secrets.ADW_USER }}
+          ADW_PASSWORD: ${{ secrets.ADW_PASSWORD }}
+          ADW_TNS_ALIAS: ${{ secrets.ADW_TNS_ALIAS }}
+          ADW_WALLET_DIR: wallet
+          ADW_WALLET_PASSWORD: ${{ secrets.ADW_WALLET_PASSWORD }}
         run: |
-          python script/dw_conection.py
+          python - <<'PY'
+          import os, oracledb
+
+          user = os.environ["ADW_USER"]
+          password = os.environ["ADW_PASSWORD"]
+          tns_alias = os.environ["ADW_TNS_ALIAS"]
+          wallet_dir = os.environ["ADW_WALLET_DIR"]
+          wallet_password = os.environ["ADW_WALLET_PASSWORD"]
+
+          # IMPORTANTE: en Thin, lo más robusto es setear defaults
+          oracledb.defaults.config_dir = wallet_dir
+          oracledb.defaults.wallet_location = wallet_dir
+          oracledb.defaults.wallet_password = wallet_password
+
+          print("TNS_ALIAS:", tns_alias)
+          print("WALLET_DIR:", wallet_dir)
+
+          conn = oracledb.connect(user=user, password=password, dsn=tns_alias)
+          cur = conn.cursor()
+          cur.execute("select sysdate from dual")
+          print("SYS_DATE:", cur.fetchone()[0])
+          cur.close()
+          conn.close()
+          print("Conexion OK (Thin + Wallet)")
+          PY
